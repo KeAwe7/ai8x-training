@@ -1250,10 +1250,27 @@ class ConvTranspose2d(Conv2d):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, op='ConvTranspose2d', **kwargs)
 
+    # def _conv_forward(self, x, weight, bias):  # pylint: disable=method-hidden
+    #     output_padding = self.op._output_padding(  # pylint: disable=protected-access
+    #         x, None, self.op.stride, self.op.padding,  # type: ignore[arg-type]
+    #         self.op.kernel_size, 2, self.op.dilation)  # type: ignore[arg-type]
+
+    #     return nn.functional.conv_transpose2d(  # pylint: disable=method-hidden
+    #         x, weight, bias, self.op.stride, self.op.padding,
+    #         output_padding, self.op.groups, self.op.dilation)
+    
     def _conv_forward(self, x, weight, bias):  # pylint: disable=method-hidden
         output_padding = self.op._output_padding(  # pylint: disable=protected-access
             x, None, self.op.stride, self.op.padding,  # type: ignore[arg-type]
             self.op.kernel_size, 2, self.op.dilation)  # type: ignore[arg-type]
+
+        # Ensure x is reshaped to match the expected input shape for conv_transpose2d
+        if x.dim() != 4:
+            raise ValueError(f"Expected 4D input tensor, but got {x.dim()}D tensor")
+
+        # Ensure weight is reshaped to match the expected shape for conv_transpose2d
+        if weight.dim() != 4:
+            raise ValueError(f"Expected 4D weight tensor, but got {weight.dim()}D tensor")
 
         return nn.functional.conv_transpose2d(  # pylint: disable=method-hidden
             x, weight, bias, self.op.stride, self.op.padding,

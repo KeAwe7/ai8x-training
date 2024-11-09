@@ -342,7 +342,8 @@ class KWS:
 
         if from_path.endswith('.tar.gz'):
             with tarfile.open(from_path, 'r:gz') as tar:
-                tar.extractall(path=to_path, filter='data')
+                # tar.extractall(path=to_path, filter='data')
+                tar.extractall(path=to_path)
         elif from_path.endswith('.zip'):
             with ZipFile(from_path) as archive:
                 archive.extractall(to_path)
@@ -435,29 +436,68 @@ class KWS:
         print(f'\rFile conversion completed: {converted_count} files ')
 
     def __filter_dtype(self):
+        # if self.d_type == 'train':
+        #     idx_to_select = (self.data_type == self.TRAIN)[:, -1]
+        # elif self.d_type == 'test':
+        #     if self.benchmark:
+        #         idx_to_select = (self.data_type == self.BENCHMARK)[:, -1]
+        #     else:
+        #         idx_bm = (self.data_type == self.BENCHMARK)[:, -1]
+        #         idx_test = (self.data_type == self.TEST)[:, -1]
+        #         idx_to_select = torch.logical_or(idx_bm, idx_test)
+        # else:
+        #     print(f'Unknown data type: {self.d_type}')
+        #     return
+        
         if self.d_type == 'train':
-            idx_to_select = (self.data_type == self.TRAIN)[:, -1]
+            idx_train = (self.data_type == self.TRAIN)[:, -1]
+            idx_to_select = idx_train
         elif self.d_type == 'test':
-            if self.benchmark:
-                idx_to_select = (self.data_type == self.BENCHMARK)[:, -1]
-            else:
-                idx_bm = (self.data_type == self.BENCHMARK)[:, -1]
-                idx_test = (self.data_type == self.TEST)[:, -1]
-                idx_to_select = torch.logical_or(idx_bm, idx_test)
+            idx_bm = (self.data_type == self.BENCHMARK)[:, -1]
+            idx_test = (self.data_type == self.TEST)[:, -1]
+            idx_to_select = torch.logical_or(idx_bm, idx_test)
         else:
             print(f'Unknown data type: {self.d_type}')
             return
 
-        set_size = idx_to_select.sum()
+        set_size = idx_to_select.sum().item()
         print(f'{self.d_type} set: {set_size} elements')
         # take a copy of the original data and targets temporarily for validation set
-        self.data_original = self.data.clone()
-        self.targets_original = self.targets.clone()
-        self.data_type_original = self.data_type.clone()
-        self.shift_limits_original = self.shift_limits.clone()
+        # self.data_original = self.data.clone()
+        # self.targets_original = self.targets.clone()
+        # self.data_type_original = self.data_type.clone()
+        # self.shift_limits_original = self.shift_limits.clone()
 
-        self.data = self.data[idx_to_select, :]
-        self.targets = self.targets[idx_to_select, :]
+        # Use in-place operations to reduce memory usage
+        # self.data = self.data[idx_to_select, :].clone()
+        # self.targets = self.targets[idx_to_select, :].clone()
+        # self.data_type = self.data_type[idx_to_select, :].clone()
+        # self.shift_limits = self.shift_limits[idx_to_select, :].clone()
+
+        # Process data in smaller chunks to reduce memory usage
+        chunk_size = 1000  # Adjust chunk size as needed
+        selected_indices = torch.nonzero(idx_to_select).squeeze()
+
+        # Initialize empty tensors for data, targets, data_type, and shift_limits
+        filtered_data = torch.empty((0, self.data.size(1)), dtype=self.data.dtype)
+        filtered_targets = torch.empty((0, self.targets.size(1)), dtype=self.targets.dtype)
+        filtered_data_type = torch.empty((0, self.data_type.size(1)), dtype=self.data_type.dtype)
+        filtered_shift_limits = torch.empty((0, self.shift_limits.size(1)), dtype=self.shift_limits.dtype)
+
+        for i in range(0, len(selected_indices), chunk_size):
+            chunk_indices = selected_indices[i:i + chunk_size]
+            filtered_data = torch.cat((filtered_data, self.data[chunk_indices, :].clone()), dim=0)
+            filtered_targets = torch.cat((filtered_targets, self.targets[chunk_indices, :].clone()), dim=0)
+            filtered_data_type = torch.cat((filtered_data_type, self.data_type[chunk_indices, :].clone()), dim=0)
+            filtered_shift_limits = torch.cat((filtered_shift_limits, self.shift_limits[chunk_indices, :].clone()), dim=0)
+
+        self.data = filtered_data
+        self.targets = filtered_targets
+        self.data_type = filtered_data_type
+        self.shift_limits = filtered_shift_limits
+
+        # self.data = self.data[idx_to_select, :]
+        # self.targets = self.targets[idx_to_select, :]
         if self.d_type == 'test':
             self.data_type[idx_to_select, :] = self.TEST
 
@@ -812,21 +852,21 @@ class KWS:
                         no_augmentations = 0
 
                     # apply speed augmentations and calculate shift limits
-                    audio_seq_list, shift_limits = \
-                        self.speed_augment_multiple(record, fs, exp_len, no_augmentations)
+                    # audio_seq_list, shift_limits = \
+                    #     self.speed_augment_multiple(record, fs, exp_len, no_augmentations)
 
-                    for local_id, audio_seq in enumerate(audio_seq_list):
-                        if not self.save_unquantized:
-                            data_in[sample_index] = \
-                                KWS.quantize_audio(audio_seq,
-                                                   num_bits=self.quantization['bits'],
-                                                   compand=self.quantization['compand'],
-                                                   mu=self.quantization['mu'])
-                        else:
-                            data_in[sample_index] = audio_seq
-                        data_shift_limits[sample_index] = shift_limits[local_id]
-                        data_type[sample_index] = d_typ
-                        sample_index += 1
+                    # for local_id, audio_seq in enumerate(audio_seq_list):
+                    #     if not self.save_unquantized:
+                    #         data_in[sample_index] = \
+                    #             KWS.quantize_audio(audio_seq,
+                    #                                num_bits=self.quantization['bits'],
+                    #                                compand=self.quantization['compand'],
+                    #                                mu=self.quantization['mu'])
+                    #     else:
+                    #         data_in[sample_index] = audio_seq
+                    #     data_shift_limits[sample_index] = shift_limits[local_id]
+                    #     data_type[sample_index] = d_typ
+                    #     sample_index += 1
 
                 dur = time.time() - time_s
                 print(f'Finished in {dur:.3f} seconds.')
@@ -866,7 +906,7 @@ class KWS:
 
 
 def KWS_get_datasets(data, load_train=True, load_test=True, dataset_name='KWS', num_classes=6,
-                     quantized=True, filter_libri=False, benchmark=False):
+                     quantized=False, filter_libri=False, benchmark=False):
     """
     Load the folded 1D version of SpeechCom dataset
 
@@ -952,7 +992,7 @@ def KWS_20_get_datasets(data, load_train=True, load_test=True):
     the stretching coefficient, shift amount and noise variance are randomly selected between
     0.8 and 1.3, -0.1 and 0.1, 0 and 1, respectively.
     """
-    return KWS_get_datasets(data, load_train, load_test, dataset_name='KWS_20', num_classes=20)
+    return KWS_get_datasets(data, load_train, load_test, dataset_name='KWS_20', num_classes=20, quantized=False)
 
 
 def KWS_35_get_datasets(data, load_train=True, load_test=True, benchmark=False):
